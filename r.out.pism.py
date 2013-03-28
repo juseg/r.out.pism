@@ -4,12 +4,12 @@
 #
 # MODULE:      r.out.pism
 #
-# AUTHOR(S):   Julien Seguinot (after a PISM example script [5])
+# AUTHOR(S):   Julien Seguinot
 #
 # PURPOSE:     Export multiple raster maps to a single NetCDF file for
 #              the Parallel Ice Sheet Model [1]
 #
-# COPYRIGHT:   (c) 2011 Julien Seguinot
+# COPYRIGHT:   (c) 2011 - 2013 Julien Seguinot
 #
 #     This program is free software: you can redistribute it and/or modify
 #     it under the terms of the GNU General Public License as published by
@@ -24,13 +24,23 @@
 #     You should have received a copy of the GNU General Public License
 #     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-#############################################################################
+############################################################################
 
 # Todo:
 # * add support for null values
 # * add option for arbitrary order of dimensions
+# * use grass.array
 
 # Version history
+# * 14/01/2013 (v0.3)
+#  - added bytes=4 in export command to prevent datatypes error
+# * 19/09/2012
+#  - added time_bounds variable
+# * 05/07/2012
+#  - added edgetemp option
+#  - corrected erroneous offset of x and y variables by one grid space
+# * 01/06/2012
+#  - updated variable names for pism0.5 compatibility
 # * 28/09/2011 (v0.2r1)
 #  - added artm for compatibility with bc files
 #  - added mapping variable with proj.4 attribute for use in PISM
@@ -126,7 +136,7 @@
 #% multiple: yes
 #%end
 #%option
-#% key: artm
+#% key: air_temp
 #% type: string
 #% gisprompt: old,cell,raster
 #% description: Name of near-surface air temperature map
@@ -142,12 +152,18 @@
 #% multiple: yes
 #%end
 #%option
-#% key: precip
+#% key: precipitation
 #% type: string
 #% gisprompt: old,cell,raster
 #% description: Name of mean annual snow accumulation map
 #% required: no
 #% multiple: yes
+#%end
+#%option
+#% key: edgetemp
+#% type: double
+#% description: Temperature value for the edge of the domain
+#% required: no
 #%end
 #%option
 #% key: smooth
@@ -186,7 +202,7 @@ def get_dim(maplist):
 		if len(maplist) == 1:
 			return ('x', 'y')
 		else:
-			return ('t', 'x', 'y')
+			return ('time', 'x', 'y')
 
 def read_map(mapname):
 		"""Return numpy array from a GRASS raster map"""
@@ -210,7 +226,7 @@ def read_map(mapname):
 
 		# read export values via temporary binary file
 		tempfile = grass.tempfile()
-		grass.run_command('r.out.bin', input=mapname, output=tempfile, quiet=True)
+		grass.run_command('r.out.bin', input=mapname, output=tempfile, quiet=True, bytes=4)
 		if smooth:
 			grass.run_command('g.remove', rast=smoothmap, quiet=True)
 		try:
@@ -221,7 +237,7 @@ def read_map(mapname):
 ### Customized NetCDF classes ###
 
 class NetCDFDataset(Dataset):
-	def init_variable(self, varname, datatype, dimensions=(), axis=None, long_name=None, standard_name=None, units=None):
+	def init_variable(self, varname, datatype, dimensions=(), axis=None, long_name=None, standard_name=None, units=None, bounds=None):
 		""" Create a new variable and set some attributes"""
 		self.variables[varname] = NetCDFVariable(self, varname, datatype,
 			dimensions=dimensions)
@@ -229,6 +245,7 @@ class NetCDFDataset(Dataset):
 		if long_name    : self.variables[varname].long_name     = long_name
 		if standard_name: self.variables[varname].standard_name = standard_name
 		if units        : self.variables[varname].units         = units
+		if bounds       : self.variables[varname].bounds        = bounds
 		return self.variables[varname]
 
 class NetCDFVariable(Variable):
@@ -260,9 +277,10 @@ def main():
 		usurf       = grass_str_list(options['usurf'])
 		bheatflx    = grass_str_list(options['bheatflx'])
 		tillphi     = grass_str_list(options['tillphi'])
-		artm        = grass_str_list(options['artm'])
+		air_temp    = grass_str_list(options['air_temp'])
 		temp_ma     = grass_str_list(options['temp_ma'])
-		precip      = grass_str_list(options['precip'])
+		precipitation = grass_str_list(options['precipitation'])
+		edgetemp    = options['edgetemp']
 		celcius     = flags['c']
 		fahrenheit  = flags['f']
 		nolonlat    = flags['x']
@@ -297,9 +315,10 @@ def main():
 			ncfile.history = time.asctime() + ': ' + os.path.basename(sys.argv[0]) + ' -'	+ ''.join([key for key in flags if flags[key]]) + ' '	+ ' '.join([key + '=' + options[key] for key in options if options[key]])
 
 		# define the dimensions
-		tdim = ncfile.createDimension('t', None) # None means unlimited
-		xdim = ncfile.createDimension('x', cols)
-		ydim = ncfile.createDimension('y', rows)
+		timedim = ncfile.createDimension('time', None) # None means unlimited
+		xdim    = ncfile.createDimension('x', cols)
+		ydim    = ncfile.createDimension('y', rows)
+		nvdim   = ncfile.createDimension('nv', 2)
 
 		# set mapping proj4 definition string
 		mapping = ncfile.init_variable('mapping', byte)
@@ -309,29 +328,29 @@ def main():
 		xvar = ncfile.init_variable('x', 'f8', dimensions=('x',),
 			axis          = 'X',
 			long_name     = 'x-coordinate in Cartesian system',
-		  standard_name = 'projection_x_coordinate', # [6]
+		  standard_name = 'projection_x_coordinate', # [5]
 		  units         = 'm')
 		for i in range(cols):
-			xvar[i] = region['w'] + (i-.5)*region['ewres']
+			xvar[i] = region['w'] + (i+.5)*region['ewres']
 
 		# set projection y coordinate
 		yvar = ncfile.init_variable('y', 'f8', dimensions=('y',),
 			axis          = 'Y',
 			long_name     = 'y-coordinate in Cartesian system',
-			standard_name = 'projection_y_coordinate', # [6]
+			standard_name = 'projection_y_coordinate', # [5]
 			units         = 'm')
 		for i in range(rows):
-			yvar[i] = region['s'] + (i-.5)*region['nsres']
+			yvar[i] = region['s'] + (i+.5)*region['nsres']
 
 		# initialize longitude and latitude
 		if (lonmap and latmap) or not nolonlat:
 			lonvar = ncfile.init_variable('lon', 'f4', twodims,
 				long_name     = 'longitude',
-				standard_name = 'longitude', # [6]
+				standard_name = 'longitude', # [5]
 				units         = 'degrees_east')
 			latvar = ncfile.init_variable('lat', 'f4', twodims,
 				long_name     = 'latitude',
-				standard_name = 'latitude', # [6]
+				standard_name = 'latitude', # [5]
 				units         = 'degrees_north')
 
 		# export lon and lat maps if both available
@@ -356,21 +375,21 @@ def main():
 		if topg or (thk and usurf):
 			topgvar = ncfile.init_variable('topg', 'f4', twodims,
 				long_name     = 'bedrock surface elevation',
-				standard_name = 'bedrock_altitude', # [6]
+				standard_name = 'bedrock_altitude', # [5]
 				units         = 'm')
 
 		# initialize land ice thickness
 		if thk or (topg and usurf):
 			thkvar = ncfile.init_variable('thk', 'f4', twodims,
 				long_name     = 'land ice thickness',
-				standard_name = 'land_ice_thickness', # [6]
+				standard_name = 'land_ice_thickness', # [5]
 				units         = 'm')
 
 		# initialize ice surface elevation
 		if usurf or (topg and thk):
 			usurfvar = ncfile.init_variable('usurf', 'f4', twodims,
 				long_name     = 'ice upper surface elevation',
-				standard_name = 'surface_altitude', # [6]
+				standard_name = 'surface_altitude', # [5]
 				units         = 'm')
 
 		# export available topographic maps
@@ -399,7 +418,7 @@ def main():
 		if bheatflx:
 			bheatflxvar = ncfile.init_variable('bheatflx', 'f4', twodims,
 				long_name     = 'upward geothermal flux at bedrock surface',
-				units         = 'W m-2')
+				units         = 'mW m-2')
 			grass.message('Exporting geothermic flux...')
 			bheatflxvar.set_maps(bheatflx)
 
@@ -411,18 +430,23 @@ def main():
 			grass.message('Exporting till friction angle...')
 			tillphivar.set_maps(tillphi)
 
-		# set near-surface air temperature (artm)
-		if artm:
-			artmvar = ncfile.init_variable('artm', 'f4', get_dim(artm),
+		# set near-surface air temperature (air_temp)
+		if air_temp:
+			air_tempvar = ncfile.init_variable('air_temp', 'f4', get_dim(air_temp),
 				long_name = 'near-surface air temperature')
 			if celcius:
-				artmvar.units = 'degC'
+				air_tempvar.units = 'degC'
 			elif fahrenheit:
-				artmvar.units = 'degF'
+				air_tempvar.units = 'degF'
 			else:
-				artmvar.units = 'K'
+				air_tempvar.units = 'K'
 			grass.message('Exporting near-surface air temperature...')
-			artmvar.set_maps(artm)
+			air_tempvar.set_maps(air_temp)
+
+		# assigne given edge temperature at domain edges
+		if edgetemp:
+			air_tempvar[:,0,:] = air_tempvar[:,-1,:] = edgetemp
+			air_tempvar[:,:,0] = air_tempvar[:,:,-1] = edgetemp
 
 		# set mean annual air temperature (temp_ma)
 		if temp_ma:
@@ -438,21 +462,24 @@ def main():
 			temp_mavar.set_maps(temp_ma)
 
 		# set annual snow precipitation
-		if precip:
-			precipvar = ncfile.init_variable('precip', 'f4', get_dim(precip),
+		if precipitation:
+			precipitationvar = ncfile.init_variable('precipitation', 'f4', get_dim(precipitation),
 				long_name = 'mean annual ice-equivalent precipitation rate',
 				units = 'm year-1')
 			grass.message('Exporting precipitation rate...')
-			precipvar.set_maps(precip)
+			precipitationvar.set_maps(precipitation)
 
-		# set time coordinate
-		tvar = ncfile.init_variable('t', 'f8', dimensions=('t',),
+		# set time coordinate and time bounds
+		timevar = ncfile.init_variable('time', 'f8', dimensions=('time',),
 			axis          = 'T',
 			long_name     = 'time',
 			standard_name = 'time',
-			units         = 'month')
-		for i in range(len(ncfile.dimensions['t'])):
-			tvar[i] = i
+			units         = 'month',
+			bounds        = 'time_bounds')
+		time_boundsvar = ncfile.init_variable('time_bounds', 'f8', dimensions=('time','nv'))
+		for i in range(len(ncfile.dimensions['time'])):
+			timevar[i] = i
+			time_boundsvar[i,:] = [i,i+1]
 
 		# close NetCDF file
 		ncfile.close()
@@ -469,6 +496,5 @@ if __name__ == "__main__":
 # [2] http://numpy.scipy.org
 # [3] http://netcdf4-python.googlecode.com
 # [4] http://pyproj.googlecode.com
-# [5] http://svn.gna.org/viewcvs/pism/trunk/examples/eisgreen/eisgreen.py
-# [6] http://www.pism-docs.org/doxy/html/std_names.html
+# [5] http://www.pism-docs.org/doxy/html/std_names.html
 
