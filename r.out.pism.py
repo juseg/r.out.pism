@@ -4,7 +4,7 @@
 #
 # MODULE:      r.out.pism
 #
-# AUTHOR(S):   Julien Seguinot
+# AUTHOR(S):   Julien Seguinot (after a PISM example script [5])
 #
 # PURPOSE:     Export multiple raster maps to a single NetCDF file for
 #              the Parallel Ice Sheet Model [1]
@@ -27,17 +27,36 @@
 #############################################################################
 
 # Todo:
-# * use binary tempfile when computing lon and lat
-# * or generate x and y from region settings
-# * improve handling of topographic maps
-# * support for null values
-# * nicer history line
+# * add artm for bc files
+# * add support for null values
+# * add option for arbitrary order of dimensions
+# * export mapping parameters in CF-4 conventions
 
-# Note on handling of topographic maps:
-# * if topg only is given:  togp=topg,                 usurf=topg;
-# * if topg and thk:        topg=topg, thk=thk,        usurf=topg+thk;
-# * if topg and usurf:      topg=topg, thk=usurf-topg, usurf=usurf;
-# * if topg, thk and usurf: topg=topg, thk=thk,        usurf=usurf.
+# Version history
+# * 01/07/2011 (v0.2)
+#  - changed order of netCDF dimensions to txyz
+#  - added time dimension and multiple temp_ma and precip export
+# * 13/06/2011:
+#  - changed snowprecip to precip
+# * 27/05/2011:
+#  - added -f flag to use Fahrenheit degrees
+#  - added -x flag to turn off lon / lat calculation
+#  - applied optional smoothing to all maps instead of just topg
+#  - fastened the lon / lat calculation (no tempfile)
+#  - customized the handling of topographic maps
+# * 13/05/2011 (v0.1):
+#  - first version of the script
+
+# Note on the handling of topographic maps:
+# |input \ output      |topg      |thk        |usurf
+# |====================================================
+# |topg only           |topg      | -         | -
+# |thk only            | -        |thk        | -
+# |usurf only          | -        | -         |usurf
+# |topg and thk        |topg      |thk        |topg+thk
+# |topg and usurf      |topg      |usurf-topg |usurf
+# |thk and usurf       |usurf-thk |thk        |usurf
+# |topg, thk and usurf |topg      |thk        |usurf
 
 #%Module
 #% description: Export multiple raster maps to a single NetCDF file for the Parallel Ice Sheet Model.
@@ -45,18 +64,9 @@
 #%End
 
 #%option
-#% key: topg
-#% type: string
-#% gisprompt: old,cell,raster
-#% key_desc: name
-#% description: Name of bedrock surface elevation map
-#% required: yes
-#%end
-#%option
 #% key: output
 #% type: string
 #% gisprompt: new,file,output
-#% key_desc: name
 #% description: Name for output file
 #% required: yes
 #%end
@@ -64,7 +74,6 @@
 #% key: lon
 #% type: string
 #% gisprompt: old,cell,raster
-#% key_desc: name
 #% description: Name of longitude map (computed if lon or lat is missing)
 #% required: no
 #%end
@@ -72,62 +81,69 @@
 #% key: lat
 #% type: string
 #% gisprompt: old,cell,raster
-#% key_desc: name
 #% description: Name of latitude map (computed if lon or lat is missing)
 #% required: no
+#%end
+#%option
+#% key: topg
+#% type: string
+#% gisprompt: old,cell,raster
+#% description: Name of bedrock surface elevation map
+#% required: no
+#% multiple: yes
 #%end
 #%option
 #% key: thk
 #% type: string
 #% gisprompt: old,cell,raster
-#% key_desc: name
 #% description: Name of land ice thickness map
 #% required: no
+#% multiple: yes
 #%end
 #%option
 #% key: usurf
 #% type: string
 #% gisprompt: old,cell,raster
-#% key_desc: name
 #% description: Name of ice surface elevation map
 #% required: no
+#% multiple: yes
 #%end
 #%option
 #% key: bheatflx
 #% type: string
 #% gisprompt: old,cell,raster
-#% key_desc: name
 #% description: Name of geothermal flux map
 #% required: no
+#% multiple: yes
 #%end
 #%option
 #% key: tillphi
 #% type: string
 #% gisprompt: old,cell,raster
-#% key_desc: name
 #% description: Name of till friction angle map
 #% required: no
+#% multiple: yes
 #%end
 #%option
 #% key: temp_ma
 #% type: string
 #% gisprompt: old,cell,raster
-#% key_desc: name
 #% description: Name of mean annual air temperature map
 #% required: no
+#% multiple: yes
 #%end
 #%option
-#% key: snowprecip
+#% key: precip
 #% type: string
 #% gisprompt: old,cell,raster
-#% key_desc: name
 #% description: Name of mean annual snow accumulation map
 #% required: no
+#% multiple: yes
 #%end
 #%option
 #% key: smooth
-#% type: double
-#% description: Neighborhood size for smoothing bed elevation
+#% type: integer
+#% description: Neighborhood size for optional smoothing before import
 #% required: no
 #%end
 
@@ -135,196 +151,295 @@
 #%  key: c
 #%  description: Use degree Celcius instead of Kelvin
 #%end
+#%flag
+#%  key: f
+#%  description: Use degree Fahrenheit instead of Kelvin
+#%end
+#%flag
+#%  key: x
+#%  description: Do not compute lon and lat if missing.
+#%end
 
-import os
-import time
-from numpy import *         # scientific module Numpy [2]
-from netCDF4 import Dataset # interface to netCDF4 library [3]
-import pyproj               # interface to PROJ.4 library [4]
+import os, time
+from numpy import *                   # scientific module Numpy [2]
+from netCDF4 import Dataset, Variable # interface to netCDF4 library [3]
+import pyproj                         # interface to PROJ.4 library [4]
 from grass.script import core as grass
 
-def readmap(mapname):	# read grass map into array
+### Internal functions ###
+
+def grass_str_list(option):
+		"""Return a list of strings from grass parsed option"""
+		return option.split(',') if option else []
+
+def get_dim(maplist):
+		"""Return dimension tuple to be used in NetCDF file"""
+		if len(maplist) == 1:
+			return ('x', 'y')
+		else:
+			return ('t', 'x', 'y')
+
+def read_map(mapname):
+		"""Return numpy array from a GRASS raster map"""
+
+		# show which map is processed if verbose
+		grass.verbose(mapname)
+
+		# parse smoothing option
+		smooth = options['smooth']
+
 		# read current region
 		region = grass.region()
 		cols = int(region['cols'])
 		rows = int(region['rows'])
 
-		# read values via temporary binary file
+		# smooth map with r.neighbors
+		if smooth:
+			smoothmap = 'r.out.pism_'+str(os.getpid())+'_tmp'
+			grass.run_command('r.neighbors', flags='c', input=mapname, output=smoothmap, size=options['smooth'], quiet=True)
+			mapname = smoothmap
+
+		# read export values via temporary binary file
 		tempfile = grass.tempfile()
 		grass.run_command('r.out.bin', input=mapname, output=tempfile, quiet=True)
-		return flipud(reshape(fromfile(tempfile,dtype='f4'), (rows,cols)))
-		grass.try_remove(tempfile)
+		if smooth:
+			grass.run_command('g.remove', rast=smoothmap, quiet=True)
+		try:
+			return transpose(flipud(reshape(fromfile(tempfile,dtype='f4'), (rows,cols))))
+		finally:
+			grass.try_remove(tempfile)
 
-def main(): # main function, called at execution time
-		# parse options
-		topgmap       = options['topg']       # optional
-		output        = options['output']     # required
-		lonmap        = options['lon']        # optional
-		latmap        = options['lat']        # optional
-		thkmap        = options['thk']        # optional
-		usurfmap      = options['usurf']      # optional
-		bheatflxmap   = options['bheatflx']   # optional
-		tillphimap    = options['tillphi']    # optional
-		temp_mamap    = options['temp_ma']    # optional
-		snowprecipmap = options['snowprecip'] # optional
-		smooth        = options['smooth']     # optional
-		celcius = flags['c']
+### Customized NetCDF classes ###
 
-		# display warning message if both thk and usurf are defined
-		if thkmap and usurfmap:
-			grass.warning('thk and usurf are both defined!')
+class NetCDFDataset(Dataset):
+	def init_variable(self, varname, datatype, dimensions=(), axis=None, long_name=None, standard_name=None, units=None):
+		""" Create a new variable and set some attributes"""
+		self.variables[varname] = NetCDFVariable(self, varname, datatype,
+			dimensions=dimensions)
+		if axis         : self.variables[varname].axis          = axis
+		if long_name    : self.variables[varname].long_name     = long_name
+		if standard_name: self.variables[varname].standard_name = standard_name
+		if units        : self.variables[varname].units         = units
+		return self.variables[varname]
+
+class NetCDFVariable(Variable):
+	def set_maps(self, maplist):
+		"""Set a list of GRASS raster maps as variable data"""
+
+		# if only one map, import it as 2D data
+		if len(maplist) == 1:
+			self[:] = read_map(maplist[0])
+
+		# if several maps, import them as time slices
+		else:
+			for i in range(nmaps):
+				self[i] = read_map(maplist[i])
+
+### Main function ###
+
+def main():
+		"""main function, called at execution time"""
+		# parse arguments
+		output      = options['output']
+		lonmap      = options['lon']
+		latmap      = options['lat']
+		topg        = grass_str_list(options['topg'])
+		thk         = grass_str_list(options['thk'])
+		usurf       = grass_str_list(options['usurf'])
+		bheatflx    = grass_str_list(options['bheatflx'])
+		tillphi     = grass_str_list(options['tillphi'])
+		temp_ma     = grass_str_list(options['temp_ma'])
+		precip      = grass_str_list(options['precip'])
+		celcius     = flags['c']
+		fahrenheit  = flags['f']
+		nolonlat    = flags['x']
+
+		# multiple input is not implemented for topographic maps
+		if len(topg) > 1:
+			grass.fatal('Multiple topg export is not implemented yet, sorry.')
+		if len(thk) > 1:
+			grass.fatal('Multiple thk export is not implemented yet, sorry.')
+		if len(usurf) > 1:
+			grass.fatal('Multiple usurf export is not implemented yet, sorry.')
+
+		# this is here until order of dimensions becomes an option
+		twodims=('x', 'y')
 
 		# read current region
 		region = grass.region()
 		cols = int(region['cols'])
 		rows = int(region['rows'])
 
-		# ready to write NetCDF file
-		ncfile = Dataset(output,'w',format='NETCDF3_CLASSIC')
+		# read current projection
+		proj = pyproj.Proj(grass.read_command("g.proj", flags='jf'))
+
+		# open NetCDF file
+		ncfile = NetCDFDataset(output, 'w', format='NETCDF3_CLASSIC')
 
 		# set global attributes
 		ncfile.Conventions = 'CF-1.4'
-		ncfile.PROJ4Definition = grass.read_command("g.proj", flags='jf')
-		ncfile.history = time.asctime() + ': ' + os.environ['CMDLINE']
+		ncfile.PROJ4Definition = proj.srs
+		try:
+			ncfile.history = time.asctime() + ': ' + os.environ['CMDLINE'].replace('"', '') # works on linux but is it portable?
+		except:
+			ncfile.history = time.asctime() + ': ' + os.path.basename(sys.argv[0]) + ' -'	+ ''.join([key for key in flags if flags[key]]) + ' '	+ ' '.join([key + '=' + options[key] for key in options if options[key]])
 
 		# define the dimensions
+		tdim = ncfile.createDimension('t', None) # None means unlimited
 		xdim = ncfile.createDimension('x', cols)
 		ydim = ncfile.createDimension('y', rows)
 
-		# set projection coordinates
-		xvar = ncfile.createVariable('x', 'f8', dimensions=('x',))
-		xvar.axis = 'X'
-		xvar.long_name = 'x-coordinate in Cartesian system'
-		xvar.standard_name = 'projection_x_coordinate'
-		xvar.units = 'm'
+		# set projection x coordinate
+		xvar = ncfile.init_variable('x', 'f8', dimensions=('x',),
+			axis          = 'X',
+			long_name     = 'x-coordinate in Cartesian system',
+		  standard_name = 'projection_x_coordinate', # [6]
+		  units         = 'm')
 		for i in range(cols):
-			xvar[i]=region['w']+(i-.5)*region['ewres']
+			xvar[i] = region['w'] + (i-.5)*region['ewres']
 
-		yvar = ncfile.createVariable('y', 'f8', dimensions=('y',))
-		yvar.axis = 'Y'
-		yvar.long_name = 'y-coordinate in Cartesian system'
-		yvar.standard_name = 'projection_y_coordinate'
-		yvar.units = 'm'
+		# set projection y coordinate
+		yvar = ncfile.init_variable('y', 'f8', dimensions=('y',),
+			axis          = 'Y',
+			long_name     = 'y-coordinate in Cartesian system',
+			standard_name = 'projection_y_coordinate', # [6]
+			units         = 'm')
 		for i in range(rows):
-			yvar[i]=region['s']+(i-.5)*region['nsres']
+			yvar[i] = region['s'] + (i-.5)*region['nsres']
 
-		# set longitude and latitude
-		lonvar = ncfile.createVariable('lon', 'f4', dimensions=('y', 'x'))
-		lonvar.long_name = 'longitude'
-		lonvar.standard_name = 'longitude'
-		lonvar.units = 'degrees_east'
+		# initialize longitude and latitude
+		if (lonmap and latmap) or not nolonlat:
+			lonvar = ncfile.init_variable('lon', 'f4', twodims,
+				long_name     = 'longitude',
+				standard_name = 'longitude', # [6]
+				units         = 'degrees_east')
+			latvar = ncfile.init_variable('lat', 'f4', twodims,
+				long_name     = 'latitude',
+				standard_name = 'latitude', # [6]
+				units         = 'degrees_north')
 
-		latvar = ncfile.createVariable('lat', 'f4', dimensions=('y', 'x'))
-		latvar.long_name = 'latitude'
-		latvar.standard_name = 'latitude'
-		latvar.units = 'degrees_north'
-
+		# export lon and lat maps if both available
 		if lonmap and latmap:
-			# read values from grass map
-			lonvar[:] = readmap(lonmap)
-			latvar[:] = readmap(latmap)
-		else:
-			grass.message('Longitude and / or latitude map(s) unspecified. Calculating values from current projection. This can take a while...')
-			# read x and y via temporary xyz file
-			tempfile = grass.tempfile()
-			grass.run_command('r.out.xyz', input=topgmap, output=tempfile, quiet=True)
-			xy = loadtxt(tempfile, delimiter='|', dtype=int, usecols=(0,1))
-			grass.try_remove(tempfile)
+			grass.message('Exporting longitude...')
+			lonvar[:] = read_map(lonmap)
+			grass.message('Exporting latitude...')
+			latvar[:] = read_map(latmap)
 
-			# convert to longitude and latitude using pyproj
-			currentproj = pyproj.Proj(grass.read_command("g.proj", flags='jf'))
-			lonlat = pyproj.transform(currentproj, pyproj.Proj(proj='latlong'), xy[:,0], xy[:,1])
-			lonvar[:] = flipud(reshape(lonlat[0], (rows, cols)))
-			latvar[:] = flipud(reshape(lonlat[1], (rows, cols)))
+		# else calculate both
+		elif not nolonlat:
+			grass.message('Longitude and / or latitude map(s) unspecified. Calculating values from current projection...')
 
-		# set bedrock surface elevation
-		topgvar = ncfile.createVariable('topg', 'f4', dimensions=('y', 'x'))
-		topgvar.long_name = 'bedrock surface elevation'
-		topgvar.standard_name = 'bedrock_altitude'
-		topgvar.units = 'm'
-		if smooth:
-			grass.message('Smoothing bed surface elevation map...')
-			newtopgmap='smoothed'
-			newtopgmap = 'r.out.pism_'+str(os.getpid())+'_tmp'
-			grass.run_command('r.neighbors', flags='c', input=topgmap, output=newtopgmap, size=smooth)
-		grass.message('Exporting bed surface elevation map...')
-		if smooth:
-			topgvar[:] = readmap(newtopgmap)
-			grass.run_command('g.remove', rast=newtopgmap)
-		else:
-			topgvar[:] = readmap(topgmap)
+			# for some reason only this weird sequence of flipud() seems to work
+			x = tile(xvar, (rows, 1))
+			y = flipud(tile(yvar, (cols, 1)).T)
+			lon, lat = proj(x, y, inverse=True)
+			lonvar[:] = transpose(flipud(lon))
+			latvar[:] = transpose(flipud(lat))
 
-		# optional variable land ice thickness
-		if thkmap or usurfmap:
-			thkvar = ncfile.createVariable('thk', 'f4', dimensions=('y', 'x'))
-			thkvar.long_name = 'land ice thickness'
-			thkvar.standard_name = 'land_ice_thickness'
-			thkvar.units = 'm'
-			if thkvar:
-				grass.message('Exporting land ice thickness map...')
-				thkvar[:] = readmap(thkmap)
+		# initialize bedrock surface elevation
+		if topg or (thk and usurf):
+			topgvar = ncfile.init_variable('topg', 'f4', twodims,
+				long_name     = 'bedrock surface elevation',
+				standard_name = 'bedrock_altitude', # [6]
+				units         = 'm')
 
-		# set ice surface elevation
-		grass.message('Exporting ice surface elevation map...')
-		usurfvar = ncfile.createVariable('usurf', 'f4', dimensions=('y', 'x'))
-		usurfvar.long_name = 'ice upper surface elevation'
-		usurfvar.standard_name = 'surface_altitude'
-		usurfvar.units = 'm'
-		if usurfmap:
-			usurfvar[:] = readmap(usurfmap)
-			if not thkmap:
-				grass.message('Exporting land ice thickness map...')
-				thkvar[:] = usurfvar[:] - topgvar[:]
-		elif thkmap:
+		# initialize land ice thickness
+		if thk or (topg and usurf):
+			thkvar = ncfile.init_variable('thk', 'f4', twodims,
+				long_name     = 'land ice thickness',
+				standard_name = 'land_ice_thickness', # [6]
+				units         = 'm')
+
+		# initialize ice surface elevation
+		if usurf or (topg and thk):
+			usurfvar = ncfile.init_variable('usurf', 'f4', twodims,
+				long_name     = 'ice upper surface elevation',
+				standard_name = 'surface_altitude', # [6]
+				units         = 'm')
+
+		# export available topographic maps
+		if topg:
+			grass.message('Exporting bed surface elevation...')
+			topgvar.set_maps(topg)
+		if thk:
+			grass.message('Exporting land ice thickness...')
+			thkvar.set_maps(thk)
+		if usurf:
+			grass.message('Exporting ice surface elevation...')
+			usurfvar.set_maps(usurf)
+
+		# possibly compute the rest
+		if not topg and (thk and usurf):
+			grass.message('Computing land ice thickness...')
+			topgvar[:] = usurfvar[:] - thkvar[:]
+		if not thk and (topg and usurf):
+			grass.message('Computing land ice thickness...')
+			thkvar[:] = usurfvar[:] - topgvar[:]
+		if not usurf and (topg and thk):
+			grass.message('Computing ice surface elevation...')
 			usurfvar[:] = topgvar[:] + thkvar[:]
-		else:
-			usurfvar[:] = topgvar[:]
 
-		# optional variable geothermic flux
-		if bheatflxmap:
-			grass.message('Exporting geothermic flux map...')
-			bheatflxvar = ncfile.createVariable('bheatflx', 'f4', dimensions=('y', 'x'))
-			bheatflxvar.long_name = 'upward geothermal flux at bedrock surface'
-			bheatflxvar.units = 'W m-2'
-			bheatflxvar[:] = readmap(bheatflxmap)
+		# set geothermic flux
+		if bheatflx:
+			bheatflxvar = ncfile.init_variable('bheatflx', 'f4', twodims,
+				long_name     = 'upward geothermal flux at bedrock surface',
+				units         = 'W m-2')
+			grass.message('Exporting geothermic flux...')
+			bheatflxvar.set_maps(bheatflx)
 
-		# optional variable till friction angle
-		if tillphimap:
-			grass.message('Exporting till friction angle map...')
-			tillphivar = ncfile.createVariable('tillphi', 'f4', dimensions=('y', 'x'))
-			tillphivar.long_name = 'friction angle for till under grounded ice sheet'
-			tillphivar.units = 'degrees'
-			tillphivar[:] = readmap(tillphimap)
+		# set till friction angle
+		if tillphi:
+			tillphivar = ncfile.init_variable('tillphi', 'f4', twodims,
+				long_name     = 'friction angle for till under grounded ice sheet',
+				units         = 'degrees')
+			grass.message('Exporting till friction angle...')
+			tillphivar.set_maps(tillphi)
 
-		# optional variable mean annual air temperature
-		if temp_mamap:
-			grass.message('Exporting mean annual air temperature map...')
-			temp_mavar = ncfile.createVariable('temp_ma', 'f4', dimensions=('y', 'x'))
-			temp_mavar.long_name = 'mean annual near-surface (2 m) air temperature'
+		# set mean annual air temperature
+		if temp_ma:
+			temp_mavar = ncfile.init_variable('temp_ma', 'f4', get_dim(temp_ma),
+				long_name = 'mean annual near-surface (2 m) air temperature')
 			if celcius:
 				temp_mavar.units = 'degC'
+			elif fahrenheit:
+				temp_mavar.units = 'degF'
 			else:
 				temp_mavar.units = 'K'
-			temp_mavar[:] = readmap(temp_mamap)
+			grass.message('Exporting mean annual air temperature...')
+			temp_mavar.set_maps(temp_ma)
 
-		# optional variable mean annual snow accumulation
-		if snowprecipmap:
-			snowprecipvar = ncfile.createVariable('snowprecip', 'f4', dimensions=('y', 'x'))
-			snowprecipvar.long_name = 'mean annual ice-equivalent snow accumulation rate'
-			snowprecipvar.units = 'm year-1'
-			snowprecipvar[:] = readmap(snowprecipmap)
+		# set annual snow precipitation
+		if precip:
+			precipvar = ncfile.init_variable('precip', 'f4', get_dim(precip),
+				long_name = 'mean annual ice-equivalent precipitation rate',
+				units = 'm year-1')
+			grass.message('Exporting precipitation rate...')
+			precipvar.set_maps(precip)
+
+		# set time coordinate
+		tvar = ncfile.init_variable('t', 'f8', dimensions=('t',),
+			axis          = 'T',
+			long_name     = 'time',
+			standard_name = 'time',
+			units         = 'month')
+		for i in range(len(ncfile.dimensions['t'])):
+			tvar[i] = i
 
 		# close NetCDF file
 		ncfile.close()
 		grass.message('NetCDF file '+output+' created')
 
+### Main program ###
+
 if __name__ == "__main__":
-    options, flags = grass.parser()
-    main()
+		options, flags = grass.parser()
+		main()
 
 # Links
 # [1] http://www.pism-docs.org
 # [2] http://numpy.scipy.org
 # [3] http://netcdf4-python.googlecode.com
 # [4] http://pyproj.googlecode.com
+# [5] http://svn.gna.org/viewcvs/pism/trunk/examples/eisgreen/eisgreen.py
+# [6] http://www.pism-docs.org/doxy/html/std_names.html
 
