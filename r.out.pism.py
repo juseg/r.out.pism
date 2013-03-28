@@ -27,12 +27,13 @@
 #############################################################################
 
 # Todo:
-# * add artm for bc files
 # * add support for null values
 # * add option for arbitrary order of dimensions
-# * export mapping parameters in CF-4 conventions
 
 # Version history
+# * 28/09/2011 (v0.2r1)
+#  - added artm for compatibility with bc files
+#  - added mapping variable with proj.4 attribute for use in PISM
 # * 01/07/2011 (v0.2)
 #  - changed order of netCDF dimensions to txyz
 #  - added time dimension and multiple temp_ma and precip export
@@ -121,6 +122,14 @@
 #% type: string
 #% gisprompt: old,cell,raster
 #% description: Name of till friction angle map
+#% required: no
+#% multiple: yes
+#%end
+#%option
+#% key: artm
+#% type: string
+#% gisprompt: old,cell,raster
+#% description: Name of near-surface air temperature map
 #% required: no
 #% multiple: yes
 #%end
@@ -226,8 +235,11 @@ class NetCDFVariable(Variable):
 	def set_maps(self, maplist):
 		"""Set a list of GRASS raster maps as variable data"""
 
+		# count number of maps to import
+		nmaps = len(maplist)
+
 		# if only one map, import it as 2D data
-		if len(maplist) == 1:
+		if nmaps == 1:
 			self[:] = read_map(maplist[0])
 
 		# if several maps, import them as time slices
@@ -248,6 +260,7 @@ def main():
 		usurf       = grass_str_list(options['usurf'])
 		bheatflx    = grass_str_list(options['bheatflx'])
 		tillphi     = grass_str_list(options['tillphi'])
+		artm        = grass_str_list(options['artm'])
 		temp_ma     = grass_str_list(options['temp_ma'])
 		precip      = grass_str_list(options['precip'])
 		celcius     = flags['c']
@@ -278,7 +291,6 @@ def main():
 
 		# set global attributes
 		ncfile.Conventions = 'CF-1.4'
-		ncfile.PROJ4Definition = proj.srs
 		try:
 			ncfile.history = time.asctime() + ': ' + os.environ['CMDLINE'].replace('"', '') # works on linux but is it portable?
 		except:
@@ -288,6 +300,10 @@ def main():
 		tdim = ncfile.createDimension('t', None) # None means unlimited
 		xdim = ncfile.createDimension('x', cols)
 		ydim = ncfile.createDimension('y', rows)
+
+		# set mapping proj4 definition string
+		mapping = ncfile.init_variable('mapping', byte)
+		mapping.proj4 = proj.srs.rstrip()
 
 		# set projection x coordinate
 		xvar = ncfile.init_variable('x', 'f8', dimensions=('x',),
@@ -395,7 +411,20 @@ def main():
 			grass.message('Exporting till friction angle...')
 			tillphivar.set_maps(tillphi)
 
-		# set mean annual air temperature
+		# set near-surface air temperature (artm)
+		if artm:
+			artmvar = ncfile.init_variable('artm', 'f4', get_dim(artm),
+				long_name = 'near-surface air temperature')
+			if celcius:
+				artmvar.units = 'degC'
+			elif fahrenheit:
+				artmvar.units = 'degF'
+			else:
+				artmvar.units = 'K'
+			grass.message('Exporting near-surface air temperature...')
+			artmvar.set_maps(artm)
+
+		# set mean annual air temperature (temp_ma)
 		if temp_ma:
 			temp_mavar = ncfile.init_variable('temp_ma', 'f4', get_dim(temp_ma),
 				long_name = 'mean annual near-surface (2 m) air temperature')
