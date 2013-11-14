@@ -365,16 +365,12 @@ def main():
 			grass.message('Exporting latitude...')
 			latvar[:] = read_map(latmap)
 
-		# else calculate both
+		# else compute them using pyproj
 		elif not nolonlat:
 			grass.message('Longitude and / or latitude map(s) unspecified. Calculating values from current projection...')
-
-			# for some reason only this weird sequence of flipud() seems to work
-			x = tile(xvar, (rows, 1))
-			y = flipud(tile(yvar, (cols, 1)).T)
-			lon, lat = proj(x, y, inverse=True)
-			lonvar[:] = transpose(flipud(lon))
-			latvar[:] = transpose(flipud(lat))
+			x = repeat(xvar, rows)
+			y = tile(yvar, cols)
+			lonvar[:], latvar[:] = proj(x, y, inverse=True)
 
 		# initialize bedrock surface elevation
 		if topg or (thk and usurf):
