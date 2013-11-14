@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 ############################################################################
 #
@@ -181,6 +181,10 @@
 #%  description: Use degree Fahrenheit instead of Kelvin
 #%end
 #%flag
+#%  key: p
+#%  description: Divide precipitation by ice density (0.910)
+#%end
+#%flag
 #%  key: x
 #%  description: Do not compute lon and lat if missing.
 #%end
@@ -204,7 +208,7 @@ def get_dim(maplist):
 		else:
 			return ('time', 'x', 'y')
 
-def read_map(mapname):
+def read_map(mapname, scalefactor=1.0):
 		"""Return numpy array from a GRASS raster map"""
 
 		# show which map is processed if verbose
@@ -230,7 +234,7 @@ def read_map(mapname):
 		if smooth:
 			grass.run_command('g.remove', rast=smoothmap, quiet=True)
 		try:
-			return transpose(flipud(reshape(fromfile(tempfile,dtype='f4'), (rows,cols))))
+			return transpose(flipud(reshape(fromfile(tempfile,dtype='f4'), (rows,cols))))*scalefactor
 		finally:
 			grass.try_remove(tempfile)
 
@@ -249,7 +253,7 @@ class NetCDFDataset(Dataset):
 		return self.variables[varname]
 
 class NetCDFVariable(Variable):
-	def set_maps(self, maplist):
+	def set_maps(self, maplist, scalefactor=1.0):
 		"""Set a list of GRASS raster maps as variable data"""
 
 		# count number of maps to import
@@ -257,12 +261,12 @@ class NetCDFVariable(Variable):
 
 		# if only one map, import it as 2D data
 		if nmaps == 1:
-			self[:] = read_map(maplist[0])
+			self[:] = read_map(maplist[0], scalefactor=scalefactor)
 
 		# if several maps, import them as time slices
 		else:
 			for i in range(nmaps):
-				self[i] = read_map(maplist[i])
+				self[i] = read_map(maplist[i], scalefactor=scalefactor)
 
 ### Main function ###
 
@@ -281,6 +285,7 @@ def main():
 		temp_ma     = grass_str_list(options['temp_ma'])
 		precipitation = grass_str_list(options['precipitation'])
 		edgetemp    = options['edgetemp']
+		iceprecip   = flags['p']
 		celcius     = flags['c']
 		fahrenheit  = flags['f']
 		nolonlat    = flags['x']
@@ -464,10 +469,12 @@ def main():
 		# set annual snow precipitation
 		if precipitation:
 			precipitationvar = ncfile.init_variable('precipitation', 'f4', get_dim(precipitation),
-				long_name = 'mean annual ice-equivalent precipitation rate',
+				long_name = 'mean annual %sprecipitation rate'
+					% ('ice-equivalent ' if iceprecip else ''),
 				units = 'm year-1')
 			grass.message('Exporting precipitation rate...')
-			precipitationvar.set_maps(precipitation)
+			precipitationvar.set_maps(precipitation,
+				scalefactor=(1/0.91 if iceprecip else 1.0))
 
 		# set time coordinate and time bounds
 		timevar = ncfile.init_variable('time', 'f8', dimensions=('time',),
