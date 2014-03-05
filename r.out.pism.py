@@ -444,10 +444,11 @@ def main():
 			grass.message('Exporting near-surface air temperature...')
 			air_tempvar.set_maps(air_temp)
 
-		# assigne given edge temperature at domain edges
+		# assign given edge temperature at domain edges
 		if edgetemp:
-			air_tempvar[:,0,:] = air_tempvar[:,-1,:] = edgetemp
-			air_tempvar[:,:,0] = air_tempvar[:,:,-1] = edgetemp
+			for i in range(air_tempvar.shape[0]):
+				air_tempvar[i,0,:] = air_tempvar[i,-1,:] = edgetemp
+				air_tempvar[i,:,0] = air_tempvar[i,:,-1] = edgetemp
 
 		# set mean annual air temperature (temp_ma)
 		if temp_ma:
