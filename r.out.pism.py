@@ -9,7 +9,7 @@
 # PURPOSE:     Export multiple raster maps to a single NetCDF file for
 #              the Parallel Ice Sheet Model [1]
 #
-# COPYRIGHT:   (c) 2011 - 2013 Julien Seguinot
+# COPYRIGHT:   (c) 2011 - 2014 Julien Seguinot
 #
 #     This program is free software: you can redistribute it and/or modify
 #     it under the terms of the GNU General Public License as published by
@@ -140,6 +140,14 @@
 #% type: string
 #% gisprompt: old,cell,raster
 #% description: Name of near-surface air temperature map
+#% required: no
+#% multiple: yes
+#%end
+#%option
+#% key: air_temp_sd
+#% type: string
+#% gisprompt: old,cell,raster
+#% description: Name of standard deviation of near-surface air temperature map
 #% required: no
 #% multiple: yes
 #%end
@@ -282,6 +290,7 @@ def main():
 		bheatflx    = grass_str_list(options['bheatflx'])
 		tillphi     = grass_str_list(options['tillphi'])
 		air_temp    = grass_str_list(options['air_temp'])
+		air_temp_sd = grass_str_list(options['air_temp_sd'])
 		temp_ma     = grass_str_list(options['temp_ma'])
 		precipitation = grass_str_list(options['precipitation'])
 		edgetemp    = options['edgetemp']
@@ -449,6 +458,14 @@ def main():
 			for i in range(air_tempvar.shape[0]):
 				air_tempvar[i,0,:] = air_tempvar[i,-1,:] = edgetemp
 				air_tempvar[i,:,0] = air_tempvar[i,:,-1] = edgetemp
+
+		# set standard deviation of near-surface air temperature (air_temp_sd)
+		if air_temp_sd:
+			air_temp_sdvar = ncfile.init_variable('air_temp_sd', 'f4', get_dim(air_temp_sd),
+				long_name = 'standard deviation of near-surface air temperature')
+			air_temp_sdvar.units = 'K'
+			grass.message('Exporting standard deviation of near-surface air temperature...')
+			air_temp_sdvar.set_maps(air_temp_sd)
 
 		# set mean annual air temperature (temp_ma)
 		if temp_ma:
