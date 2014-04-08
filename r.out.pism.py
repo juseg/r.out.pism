@@ -337,6 +337,7 @@ def main():
 		# set mapping proj4 definition string
 		mapping = ncfile.init_variable('mapping', byte)
 		mapping.proj4 = proj.srs.rstrip()
+		ncfile.proj4 = proj.srs.rstrip()
 
 		# set projection x coordinate
 		xvar = ncfile.init_variable('x', 'f8', dimensions=('x',),
