@@ -204,6 +204,76 @@ from grass.script import core as grass
 from grass.script import array as garray
 
 
+### Default variable names and attributes ###
+
+names = {
+
+    # coordinate variables
+    'x': {
+        'axis': 'X',
+        'long_name': 'x-coordinate in Cartesian system',
+        'standard_name': 'projection_x_coordinate',
+        'units': 'm'},
+    'y': {
+        'axis': 'Y',
+        'long_name': 'y-coordinate in Cartesian system',
+        'standard_name': 'projection_y_coordinate',
+        'units': 'm'},
+    'lon': {
+        'long_name': 'longitude',
+        'standard_name':'longitude',
+        'units': 'degrees_east'},
+    'lat': {
+        'long_name': 'latitude',
+        'standard_name':'latitude',
+        'units': 'degrees_north'},
+    'time': {
+        'axis': 'T',
+        'long_name': 'time',
+        'standard_name': 'time',
+        'bounds': 'time_bounds',
+        'units': 'month'},
+    'time_bounds': {},
+    'mapping': {},
+
+    # topographic variables
+    'topg': {
+        'long_name': 'bedrock surface elevation',
+        'standard_name': 'bedrock_altitude',
+        'units': 'm'},
+    'thk': {
+        'long_name': 'land ice thickness',
+        'standard_name': 'land_ice_thickness',
+        'units': 'm'},
+    'usurf': {
+        'long_name': 'ice upper surface elevation',
+        'standard_name': 'surface_altitude',
+        'units': 'm'},
+
+    # climatic variables
+    'air_temp': {
+        'long_name': 'near-surface air temperature',
+        'units': 'K'},
+    'air_temp_sd': {
+        'long_name': 'standard deviation of near-surface air temperature',
+        'units': 'K'},
+    'precipitation': {
+        'long_name': 'mean annual %sprecipitation rate',
+        'standard_name': '',
+        'units': 'm year-1'},
+    'temp_ma': {
+        'long_name': 'mean annual near-surface (2 m) air temperature',
+        'units': 'K'},
+
+    # other variables
+    'bheatflux': {
+        'long_name': 'upward geothermal flux at bedrock surface',
+        'units': 'mW m-2'},
+    'tillphi': {
+        'long_name': 'friction angle for till under grounded ice sheet',
+        'units': 'degrees'}}
+
+
 ### Internal functions ###
 
 def grass_str_list(option):
@@ -246,27 +316,17 @@ def read_map(mapname, scalefactor=1.0):
 
 ### Customized NetCDF classes ###
 
-class NetCDFDataset(Dataset):
-    def init_variable(self, varname, datatype, dimensions=(), axis=None,
-                      long_name=None, standard_name=None, units=None,
-                      bounds=None):
-        """Create a new variable and set some attributes"""
-        self.variables[varname] = NetCDFVariable(self, varname, datatype,
-                                                 dimensions=dimensions)
-        if axis:
-            self.variables[varname].axis = axis
-        if long_name:
-            self.variables[varname].long_name = long_name
-        if standard_name:
-            self.variables[varname].standard_name = standard_name
-        if units:
-            self.variables[varname].units = units
-        if bounds:
-            self.variables[varname].bounds = bounds
+class PISMDataset(Dataset):
+    def createVariable(self, varname, datatype, dimensions=()):
+        """Create a new variable and set default attributes"""
+        var = PISMVariable(self, varname, datatype, dimensions)
+        for (attr, value) in names[varname].iteritems():
+            setattr(var, attr, value)
+        self.variables[varname] = var
         return self.variables[varname]
 
 
-class NetCDFVariable(Variable):
+class PISMVariable(Variable):
     def set_maps(self, maplist, scalefactor=1.0):
         """Set a list of GRASS raster maps as variable data"""
 
@@ -326,60 +386,46 @@ def main():
     proj = pyproj.Proj(grass.read_command("g.proj", flags='jf'))
 
     # open NetCDF file
-    ncfile = NetCDFDataset(output, 'w', format='NETCDF3_CLASSIC')
+    nc = PISMDataset(output, 'w', format='NETCDF3_CLASSIC')
 
     # set global attributes
-    ncfile.Conventions = 'CF-1.4'
+    nc.Conventions = 'CF-1.4'
     try:  # works on linux but is it portable?
-        ncfile.history = (time.asctime() + ': '
-                          + os.environ['CMDLINE'].replace('"', ''))
+        nc.history = (time.asctime() + ': '
+                      + os.environ['CMDLINE'].replace('"', ''))
     except:
         import sys
-        ncfile.history = (time.asctime() + ': '
-                          + os.path.basename(sys.argv[0]) + ' -'
-                          + ''.join([key for key in flags if flags[key]])
-                          + ' ' + ' '.join([key+'='+options[key] for key
-                                            in options if options[key]]))
+        nc.history = (time.asctime() + ': '
+                      + os.path.basename(sys.argv[0]) + ' -'
+                      + ''.join([key for key in flags if flags[key]])
+                      + ' ' + ' '.join([key+'='+options[key] for key
+                                        in options if options[key]]))
 
     # define the dimensions
-    ncfile.createDimension('time', None)  # None means unlimited
-    ncfile.createDimension('x', cols)
-    ncfile.createDimension('y', rows)
-    ncfile.createDimension('nv', 2)
+    nc.createDimension('time', None)  # None means unlimited
+    nc.createDimension('x', cols)
+    nc.createDimension('y', rows)
+    nc.createDimension('nv', 2)
 
     # set mapping proj4 definition string
-    mapping = ncfile.init_variable('mapping', byte)
+    mapping = nc.createVariable('mapping', byte)
     mapping.proj4 = proj.srs.rstrip()
-    ncfile.proj4 = proj.srs.rstrip()
+    nc.proj4 = proj.srs.rstrip()
 
     # set projection x coordinate
-    xvar = ncfile.init_variable(
-        'x', 'f8', dimensions=('x',), axis='X',
-        long_name='x-coordinate in Cartesian system',
-        standard_name='projection_x_coordinate',  # [5]
-        units='m')
+    xvar = nc.createVariable('x', 'f8', ('x',))
     for i in range(cols):
         xvar[i] = region['w'] + (i+.5)*region['ewres']
 
     # set projection y coordinate
-    yvar = ncfile.init_variable(
-        'y', 'f8', dimensions=('y',), axis='Y',
-        long_name='y-coordinate in Cartesian system',
-        standard_name='projection_y_coordinate',  # [5]
-        units='m')
+    yvar = nc.createVariable('y', 'f8', ('y',))
     for i in range(rows):
         yvar[i] = region['s'] + (i+.5)*region['nsres']
 
     # initialize longitude and latitude
     if (lonmap and latmap) or not nolonlat:
-        lonvar = ncfile.init_variable('lon', 'f4', twodims,
-                                      long_name='longitude',
-                                      standard_name='longitude',  # [5]
-                                      units='degrees_east')
-        latvar = ncfile.init_variable('lat', 'f4', twodims,
-                                      long_name='latitude',
-                                      standard_name='latitude',  # [5]
-                                      units='degrees_north')
+        lonvar = nc.createVariable('lon', 'f4', twodims)
+        latvar = nc.createVariable('lat', 'f4', twodims)
 
     # export lon and lat maps if both available
     if lonmap and latmap:
@@ -398,25 +444,15 @@ def main():
 
     # initialize bedrock surface elevation
     if topg or (thk and usurf):
-        topgvar = ncfile.init_variable('topg', 'f4', twodims,
-                                       long_name='bedrock surface elevation',
-                                       standard_name='bedrock_altitude',  # [5]
-                                       units='m')
+        topgvar = nc.createVariable('topg', 'f4', twodims)
 
     # initialize land ice thickness
     if thk or (topg and usurf):
-        thkvar = ncfile.init_variable('thk', 'f4', twodims,
-                                      long_name='land ice thickness',
-                                      standard_name='land_ice_thickness',
-                                      units='m')  # [5]
+        thkvar = nc.createVariable('thk', 'f4', twodims)
 
     # initialize ice surface elevation
     if usurf or (topg and thk):
-        usurfvar = ncfile.init_variable(
-            'usurf', 'f4', twodims,
-            long_name='ice upper surface elevation',
-            standard_name='surface_altitude',  # [5]
-            units='m')
+        usurfvar = nc.createVariable('usurf', 'f4', twodims)
 
     # export available topographic maps
     if topg:
@@ -442,33 +478,23 @@ def main():
 
     # set geothermic flux
     if bheatflx:
-        bheatflxvar = ncfile.init_variable(
-            'bheatflx', 'f4', twodims,
-            long_name='upward geothermal flux at bedrock surface',
-            units='mW m-2')
+        bheatflxvar = nc.createVariable('bheatflx', 'f4', twodims)
         grass.message('Exporting geothermic flux...')
         bheatflxvar.set_maps(bheatflx)
 
     # set till friction angle
     if tillphi:
-        tillphivar = ncfile.init_variable(
-            'tillphi', 'f4', twodims,
-            long_name='friction angle for till under grounded ice sheet',
-            units='degrees')
+        tillphivar = nc.createVariable('tillphi', 'f4', twodims)
         grass.message('Exporting till friction angle...')
         tillphivar.set_maps(tillphi)
 
     # set near-surface air temperature (air_temp)
     if air_temp:
-        air_tempvar = ncfile.init_variable(
-            'air_temp', 'f4', get_dim(air_temp),
-            long_name='near-surface air temperature')
+        air_tempvar = nc.createVariable('air_temp', 'f4', get_dim(air_temp))
         if celcius:
             air_tempvar.units = 'degC'
         elif fahrenheit:
             air_tempvar.units = 'degF'
-        else:
-            air_tempvar.units = 'K'
         grass.message('Exporting near-surface air temperature...')
         air_tempvar.set_maps(air_temp)
 
@@ -480,53 +506,42 @@ def main():
 
     # set standard deviation of near-surface air temperature (air_temp_sd)
     if air_temp_sd:
-        air_temp_sdvar = ncfile.init_variable(
-            'air_temp_sd', 'f4', get_dim(air_temp_sd),
-            long_name='standard deviation of near-surface air temperature')
-        air_temp_sdvar.units = 'K'
+        air_temp_sdvar = nc.createVariable(
+            'air_temp_sd', 'f4', get_dim(air_temp_sd))
         grass.message('Exporting standard deviation of near-surface air'
                       'temperature...')
         air_temp_sdvar.set_maps(air_temp_sd)
 
     # set mean annual air temperature (temp_ma)
     if temp_ma:
-        temp_mavar = ncfile.init_variable(
-            'temp_ma', 'f4', get_dim(temp_ma),
-            long_name='mean annual near-surface (2 m) air temperature')
+        temp_mavar = nc.createVariable('temp_ma', 'f4', get_dim(temp_ma))
         if celcius:
             temp_mavar.units = 'degC'
         elif fahrenheit:
             temp_mavar.units = 'degF'
-        else:
-            temp_mavar.units = 'K'
         grass.message('Exporting mean annual air temperature...')
         temp_mavar.set_maps(temp_ma)
 
     # set annual snow precipitation
     if precipitation:
-        precipitationvar = ncfile.init_variable(
-            'precipitation', 'f4', get_dim(precipitation),
-            long_name=('mean annual %sprecipitation rate'
-                       % ('ice-equivalent ' if iceprecip else '')),
-            units='m year-1')
+        precipitationvar = nc.createVariable(
+            'precipitation', 'f4', get_dim(precipitation))
+        precipitationvar.long_name=('mean annual %sprecipitation rate'
+                                 % ('ice-equivalent ' if iceprecip else ''))
         grass.message('Exporting precipitation rate...')
         precipitationvar.set_maps(
             precipitation,
             scalefactor=(1/0.91 if iceprecip else 1.0))
 
     # set time coordinate and time bounds
-    timevar = ncfile.init_variable('time', 'f8', dimensions=('time',),
-                                   axis='T', long_name='time',
-                                   standard_name = 'time', units='month',
-                                   bounds='time_bounds')
-    time_boundsvar = ncfile.init_variable('time_bounds', 'f8',
-                                          dimensions=('time', 'nv'))
-    for i in range(len(ncfile.dimensions['time'])):
+    timevar = nc.createVariable('time', 'f8', ('time',))
+    time_boundsvar = nc.createVariable('time_bounds', 'f8', ('time', 'nv'))
+    for i in range(len(nc.dimensions['time'])):
         timevar[i] = i
         time_boundsvar[i, :] = [i, i+1]
 
     # close NetCDF file
-    ncfile.close()
+    nc.close()
     grass.message('NetCDF file '+output+' created')
 
 ### Main program ###
