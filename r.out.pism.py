@@ -201,6 +201,7 @@ from numpy import *                     # scientific module Numpy [2]
 from netCDF4 import Dataset, Variable   # interface to netCDF4 library [3]
 import pyproj                           # interface to PROJ.4 library [4]
 from grass.script import core as grass
+from grass.script import array as garray
 
 
 ### Internal functions ###
@@ -227,11 +228,6 @@ def read_map(mapname, scalefactor=1.0):
     # parse smoothing option
     smooth = options['smooth']
 
-    # read current region
-    region = grass.region()
-    cols = int(region['cols'])
-    rows = int(region['rows'])
-
     # smooth map with r.neighbors
     if smooth:
         smoothmap = 'r.out.pism_'+str(os.getpid())+'_tmp'
@@ -240,17 +236,12 @@ def read_map(mapname, scalefactor=1.0):
                           size=options['smooth'], quiet=True)
         mapname = smoothmap
 
-    # read export values via temporary binary file
-    tempfile = grass.tempfile()
-    grass.run_command('r.out.bin', input=mapname, output=tempfile,
-                      quiet=True, bytes=4)
+    # read map into array
+    a = garray.array()
+    a.read(mapname)
     if smooth:
         grass.run_command('g.remove', rast=smoothmap, quiet=True)
-    try:
-        return transpose(flipud(reshape(fromfile(tempfile, dtype='f4'),
-                                        (rows, cols))))*scalefactor
-    finally:
-        grass.try_remove(tempfile)
+    return transpose(flipud(a[:]))*scalefactor
 
 
 ### Customized NetCDF classes ###
@@ -259,7 +250,7 @@ class NetCDFDataset(Dataset):
     def init_variable(self, varname, datatype, dimensions=(), axis=None,
                       long_name=None, standard_name=None, units=None,
                       bounds=None):
-        """ Create a new variable and set some attributes"""
+        """Create a new variable and set some attributes"""
         self.variables[varname] = NetCDFVariable(self, varname, datatype,
                                                  dimensions=dimensions)
         if axis:
@@ -547,7 +538,7 @@ if __name__ == "__main__":
 # Links
 # [1] http://www.pism-docs.org
 # [2] http://numpy.scipy.org
-# [3] http://netcdf4-python.googlecode.com
+# [3] https://github.com/Unidata/netcdf4-python
 # [4] http://pyproj.googlecode.com
 # [5] http://www.pism-docs.org/doxy/html/std_names.html
 
