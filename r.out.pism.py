@@ -196,6 +196,7 @@ COPYRIGHT:  (c) 2011-2014 Julien Seguinot
 #%end
 
 import os
+import sys
 import time
 from numpy import *                     # scientific module Numpy [2]
 from netCDF4 import Dataset, Variable   # interface to netCDF4 library [3]
@@ -388,29 +389,18 @@ def main():
     # open NetCDF file
     nc = PISMDataset(output, 'w', format='NETCDF3_CLASSIC')
 
-    # set global attributes
+    # set global attributes and projection info
     nc.Conventions = 'CF-1.4'
-    try:  # works on linux but is it portable?
-        nc.history = (time.asctime() + ': '
-                      + os.environ['CMDLINE'].replace('"', ''))
-    except:
-        import sys
-        nc.history = (time.asctime() + ': '
-                      + os.path.basename(sys.argv[0]) + ' -'
-                      + ''.join([key for key in flags if flags[key]])
-                      + ' ' + ' '.join([key+'='+options[key] for key
-                                        in options if options[key]]))
+    nc.history = '%s: %s' % (time.asctime(), ' '.join(sys.argv))
+    nc.proj4 = proj.srs.rstrip()
+    mapping = nc.createVariable('mapping', byte)
+    mapping.proj4 = proj.srs.rstrip()
 
     # define the dimensions
     nc.createDimension('time', None)  # None means unlimited
     nc.createDimension('x', cols)
     nc.createDimension('y', rows)
     nc.createDimension('nv', 2)
-
-    # set mapping proj4 definition string
-    mapping = nc.createVariable('mapping', byte)
-    mapping.proj4 = proj.srs.rstrip()
-    nc.proj4 = proj.srs.rstrip()
 
     # set projection x coordinate
     xvar = nc.createVariable('x', 'f8', ('x',))
