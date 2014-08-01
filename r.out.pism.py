@@ -491,8 +491,8 @@ def main():
     # assign given edge temperature at domain edges
     if edgetemp:
         for i in range(air_tempvar.shape[0]):
-            air_tempvar[i, 0, :] = air_tempvar[i, -1, :] = edgetemp
-            air_tempvar[i, :, 0] = air_tempvar[i, :, -1] = edgetemp
+            air_tempvar[i, :3, :] = air_tempvar[i, -3:, :] = edgetemp
+            air_tempvar[i, :, :3] = air_tempvar[i, :, -3:] = edgetemp
 
     # set standard deviation of near-surface air temperature (air_temp_sd)
     if air_temp_sd:
@@ -546,4 +546,3 @@ if __name__ == "__main__":
 # [3] https://github.com/Unidata/netcdf4-python
 # [4] http://pyproj.googlecode.com
 # [5] http://www.pism-docs.org/doxy/html/std_names.html
-
