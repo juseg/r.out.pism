@@ -180,6 +180,13 @@ COPYRIGHT:  (c) 2011-2014 Julien Seguinot
 #% answer: 300
 #%end
 #%option
+#% key: edgewidth
+#% type: integer
+#% description: Edge buffer width in number of grid cells
+#% required: no
+#% answer: 3
+#%end
+#%option
 #% key: smooth
 #% type: integer
 #% description: Neighborhood size for optional smoothing before import
@@ -375,6 +382,7 @@ def main():
     precipitation = grass_str_list(options['precipitation'])
     edgetemp = options['edgetemp']
     edgetopg = options['edgetopg']
+    edgewidth = int(options['edgewidth'])
     iceprecip = flags['p']
     celcius = flags['c']
     edgebuffer = flags['e']
@@ -482,8 +490,8 @@ def main():
 
     # assign given edge topography at domain edges
     if (topg or (thk and usurf)) and edgebuffer:
-        topgvar[:3, :] = topgvar[-3:, :] = edgetopg
-        topgvar[:, :3] = topgvar[:, -3:] = edgetopg
+        topgvar[:edgewidth, :] = topgvar[-edgewidth:, :] = edgetopg
+        topgvar[:, :edgewidth] = topgvar[:, -edgewidth:] = edgetopg
 
     # set geothermic flux
     if bheatflx:
@@ -510,8 +518,10 @@ def main():
     # assign given edge temperature at domain edges
     if air_temp and edgebuffer:
         for i in range(air_tempvar.shape[0]):
-            air_tempvar[i, :3, :] = air_tempvar[i, -3:, :] = edgetemp
-            air_tempvar[i, :, :3] = air_tempvar[i, :, -3:] = edgetemp
+            air_tempvar[i, :edgewidth, :] = edgetemp
+            air_tempvar[i, -edgewidth:, :] = edgetemp
+            air_tempvar[i, :, :edgewidth] = edgetemp
+            air_tempvar[i, :, -edgewidth:] = edgetemp
 
     # set standard deviation of near-surface air temperature (air_temp_sd)
     if air_temp_sd:
