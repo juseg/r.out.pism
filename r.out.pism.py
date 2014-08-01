@@ -166,6 +166,12 @@ COPYRIGHT:  (c) 2011-2014 Julien Seguinot
 #% multiple: yes
 #%end
 #%option
+#% key: edgetopg
+#% type: double
+#% description: Bedrock surface elevation at the edge of the domain
+#% required: no
+#%end
+#%option
 #% key: edgetemp
 #% type: double
 #% description: Temperature value for the edge of the domain
@@ -362,6 +368,7 @@ def main():
     temp_ma = grass_str_list(options['temp_ma'])
     precipitation = grass_str_list(options['precipitation'])
     edgetemp = options['edgetemp']
+    edgetopg = options['edgetopg']
     iceprecip = flags['p']
     celcius = flags['c']
     fahrenheit = flags['f']
@@ -465,6 +472,11 @@ def main():
     if not usurf and (topg and thk):
         grass.message('Computing ice surface elevation...')
         usurfvar[:] = topgvar[:] + thkvar[:]
+
+    # assign given edge topography at domain edges
+    if edgetopg:
+        topgvar[:3, :] = topgvar[-3:, :] = edgetopg
+        topgvar[:, :3] = topgvar[:, -3:] = edgetopg
 
     # set geothermic flux
     if bheatflx:
