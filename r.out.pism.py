@@ -170,12 +170,14 @@ COPYRIGHT:  (c) 2011-2014 Julien Seguinot
 #% type: double
 #% description: Bedrock surface elevation at the edge of the domain
 #% required: no
+#% answer: -3000
 #%end
 #%option
 #% key: edgetemp
 #% type: double
 #% description: Temperature value for the edge of the domain
 #% required: no
+#% answer: 300
 #%end
 #%option
 #% key: smooth
@@ -187,6 +189,10 @@ COPYRIGHT:  (c) 2011-2014 Julien Seguinot
 #%flag
 #%  key: c
 #%  description: Use degree Celcius instead of Kelvin
+#%end
+#%flag
+#%  key: e
+#%  description: Add buffer zone along edges to prevent ice leak.
 #%end
 #%flag
 #%  key: f
@@ -371,6 +377,7 @@ def main():
     edgetopg = options['edgetopg']
     iceprecip = flags['p']
     celcius = flags['c']
+    edgebuffer = flags['e']
     fahrenheit = flags['f']
     nolonlat = flags['x']
 
@@ -474,7 +481,7 @@ def main():
         usurfvar[:] = topgvar[:] + thkvar[:]
 
     # assign given edge topography at domain edges
-    if edgetopg:
+    if (topg or (thk and usurf)) and edgebuffer:
         topgvar[:3, :] = topgvar[-3:, :] = edgetopg
         topgvar[:, :3] = topgvar[:, -3:] = edgetopg
 
@@ -501,7 +508,7 @@ def main():
         air_tempvar.set_maps(air_temp)
 
     # assign given edge temperature at domain edges
-    if edgetemp:
+    if air_temp and edgebuffer:
         for i in range(air_tempvar.shape[0]):
             air_tempvar[i, :3, :] = air_tempvar[i, -3:, :] = edgetemp
             air_tempvar[i, :, :3] = air_tempvar[i, :, -3:] = edgetemp
