@@ -29,7 +29,6 @@ COPYRIGHT:  (c) 2011-2014 Julien Seguinot
 #  - check GRASS style compatibility
 #  - upload to GRASS repo/wiki
 #  - add HTML docs
-#  - correct bheatflx bug
 #  - option for arbitrary order of dimensions
 # * (0.5)
 #  - grid registration
@@ -293,7 +292,7 @@ names = {
         'units': 'K'},
 
     # other variables
-    'bheatflux': {
+    'bheatflx': {
         'long_name': 'upward geothermal flux at bedrock surface',
         'units': 'mW m-2'},
     'tillphi': {
@@ -534,7 +533,7 @@ def main():
     if air_temp_sd:
         air_temp_sdvar = nc.createVariable(
             'air_temp_sd', 'f4', get_dim(air_temp_sd))
-        grass.message('Exporting standard deviation of near-surface air'
+        grass.message('Exporting standard deviation of near-surface air '
                       'temperature...')
         air_temp_sdvar.set_maps(air_temp_sd)
 
