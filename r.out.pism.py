@@ -25,9 +25,16 @@ COPYRIGHT:  (c) 2011-2014 Julien Seguinot
 """
 
 # Todo:
-# * add support for null values
-# * add option for arbitrary order of dimensions
-# * use grass.array
+# * (0.4)
+#  - check GRASS style compatibility
+#  - upload to GRASS repo/wiki
+#  - add HTML docs
+#  - correct bheatflx bug
+#  - option for arbitrary order of dimensions
+# * (0.5)
+#  - grid registration
+#  - support for null values
+#  - raster reprojection
 
 # Version history
 # * 14/01/2013 (v0.3)
