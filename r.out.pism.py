@@ -230,7 +230,8 @@ from grass.script import core as grass
 from grass.script import array as garray
 
 
-### Default variable names and attributes ###
+# Default variable names and attributes
+# -------------------------------------
 
 names = {
 
@@ -247,11 +248,11 @@ names = {
         'units': 'm'},
     'lon': {
         'long_name': 'longitude',
-        'standard_name':'longitude',
+        'standard_name': 'longitude',
         'units': 'degrees_east'},
     'lat': {
         'long_name': 'latitude',
-        'standard_name':'latitude',
+        'standard_name': 'latitude',
         'units': 'degrees_north'},
     'time': {
         'axis': 'T',
@@ -300,7 +301,8 @@ names = {
         'units': 'degrees'}}
 
 
-### Internal functions ###
+# Internal functions
+# ------------------
 
 def grass_str_list(option):
     """Return a list of strings from grass parsed option"""
@@ -326,7 +328,7 @@ def read_map(mapname, scalefactor=1.0):
 
     # smooth map with r.neighbors
     if smooth:
-        smoothmap = 'r.out.pism_'+str(os.getpid())+'_tmp'
+        smoothmap = 'r.out.pism_' + str(os.getpid()) + '_tmp'
         grass.run_command('r.neighbors', flags='c',
                           input=mapname, output=smoothmap,
                           size=options['smooth'], quiet=True)
@@ -340,7 +342,8 @@ def read_map(mapname, scalefactor=1.0):
     return transpose(flipud(a[:]))*scalefactor
 
 
-### Customized NetCDF classes ###
+# Customized NetCDF classes
+# -------------------------
 
 class PISMDataset(Dataset):
     def createVariable(self, varname, datatype, dimensions=()):
@@ -369,10 +372,12 @@ class PISMVariable(Variable):
                 self[i] = read_map(maplist[i], scalefactor=scalefactor)
 
 
-### Main function ###
+# Main function
+# -------------
 
 def main():
-    """main function, called at execution time"""
+    """Main function, called at execution time."""
+
     # parse arguments
     output = options['output']
     lonmap = options['lon']
@@ -551,8 +556,9 @@ def main():
     if precipitation:
         precipitationvar = nc.createVariable(
             'precipitation', 'f4', get_dim(precipitation))
-        precipitationvar.long_name=('mean annual %sprecipitation rate'
-                                 % ('ice-equivalent ' if iceprecip else ''))
+        precipitationvar.long_name = (
+            'mean annual %sprecipitation rate'
+            % ('ice-equivalent ' if iceprecip else ''))
         grass.message('Exporting precipitation rate...')
         precipitationvar.set_maps(
             precipitation,
@@ -567,9 +573,11 @@ def main():
 
     # close NetCDF file
     nc.close()
-    grass.message('NetCDF file '+output+' created')
+    grass.message('NetCDF file ' + output + ' created')
 
-### Main program ###
+
+# Main program
+# ------------
 
 if __name__ == "__main__":
     options, flags = grass.parser()
