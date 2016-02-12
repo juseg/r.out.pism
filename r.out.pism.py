@@ -424,7 +424,7 @@ def main():
 
     # set global attributes and projection info
     nc.Conventions = 'CF-1.4'
-    nc.history = '%s: %s' % (time.asctime(), ' '.join(sys.argv))
+    nc.history = time.strftime('%Y-%m-%d %H:%M:%S %Z: ') + ' '.join(sys.argv)
     nc.proj4 = proj.srs.rstrip()
     mapping = nc.createVariable('mapping', byte)
     mapping.proj4 = proj.srs.rstrip()
