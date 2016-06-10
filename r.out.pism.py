@@ -28,6 +28,7 @@ COPYRIGHT:  (c) 2011-2016 Julien Seguinot
 # * (0.4)
 #  - upload to GRASS repo/wiki
 #  - add HTML docs
+#  - update tutorial
 #  - option for arbitrary order of dimensions
 # * (0.5)
 #  - grid registration
