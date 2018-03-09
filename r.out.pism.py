@@ -8,7 +8,7 @@ AUTHOR(S):  Julien Seguinot <seguinot@vaw.baug.ethz.ch>.
 PURPOSE:    Export multiple raster maps to a single NetCDF file for
             the Parallel Ice Sheet Model [1]
 
-COPYRIGHT:  (c) 2011-2016 Julien Seguinot
+COPYRIGHT:  (c) 2011-2018 Julien Seguinot
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -29,7 +29,6 @@ COPYRIGHT:  (c) 2011-2016 Julien Seguinot
 #  - upload to GRASS repo/wiki
 #  - add HTML docs
 #  - update tutorial
-#  - option for arbitrary order of dimensions
 # * (0.5)
 #  - grid registration
 #  - support for null values
@@ -312,9 +311,9 @@ def grass_str_list(option):
 def get_dim(maplist):
     """Return dimension tuple to be used in NetCDF file."""
     if len(maplist) == 1:
-        return ('x', 'y')
+        return ('y', 'x')
     else:
-        return ('time', 'x', 'y')
+        return ('time', 'y', 'x')
 
 
 def read_map(mapname, scalefactor=1.0):
@@ -339,7 +338,7 @@ def read_map(mapname, scalefactor=1.0):
     a.read(mapname)
     if smooth:
         grass.run_command('g.remove', rast=smoothmap, quiet=True)
-    return transpose(flipud(a[:]))*scalefactor
+    return flipud(a[:])*scalefactor
 
 
 # Customized NetCDF classes
@@ -409,7 +408,7 @@ def main():
         grass.fatal("Multiple usurf export is not implemented yet, sorry.")
 
     # this is here until order of dimensions becomes an option
-    twodims = ('x', 'y')
+    twodims = ('y', 'x')
 
     # read current region
     region = grass.region()
@@ -461,8 +460,7 @@ def main():
     elif not nolonlat:
         grass.message("Longitude and / or latitude map(s) unspecified."
                       "Calculating values from current projection...")
-        x = repeat(xvar, rows)
-        y = tile(yvar, cols)
+        x, y = meshgrid(xvar[:], yvar[:])
         lonvar[:], latvar[:] = proj(x, y, inverse=True)
 
     # initialize bedrock surface elevation
