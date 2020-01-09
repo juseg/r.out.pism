@@ -8,7 +8,7 @@ AUTHOR(S):  Julien Seguinot <seguinot@vaw.baug.ethz.ch>.
 PURPOSE:    Export multiple raster maps to a single NetCDF file for
             the Parallel Ice Sheet Model [1]
 
-COPYRIGHT:  (c) 2011-2018 Julien Seguinot
+COPYRIGHT:  (c) 2011-2020 Julien Seguinot
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -348,7 +348,7 @@ class PISMDataset(Dataset):
     def createVariable(self, varname, datatype, dimensions=()):
         """Create a new variable and set default attributes."""
         var = PISMVariable(self, varname, datatype, dimensions)
-        for (attr, value) in names[varname].iteritems():
+        for (attr, value) in names[varname].items():
             setattr(var, attr, value)
         self.variables[varname] = var
         return self.variables[varname]
