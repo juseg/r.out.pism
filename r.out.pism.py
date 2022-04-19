@@ -8,7 +8,7 @@ AUTHOR(S):  Julien Seguinot <seguinot@vaw.baug.ethz.ch>.
 PURPOSE:    Export multiple raster maps to a single NetCDF file for
             the Parallel Ice Sheet Model [1]
 
-COPYRIGHT:  (c) 2011-2020 Julien Seguinot
+COPYRIGHT:  (c) 2011-2022 Julien Seguinot
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -222,7 +222,7 @@ COPYRIGHT:  (c) 2011-2020 Julien Seguinot
 import os
 import sys
 import time
-from numpy import *                     # scientific module Numpy [2]
+import numpy as np                      # scientific module Numpy [2]
 from netCDF4 import Dataset, Variable   # interface to netCDF4 library [3]
 import pyproj                           # interface to PROJ.4 library [4]
 from grass.script import core as grass
@@ -338,7 +338,7 @@ def read_map(mapname, scalefactor=1.0):
     a.read(mapname)
     if smooth:
         grass.run_command('g.remove', rast=smoothmap, quiet=True)
-    return flipud(a[:])*scalefactor
+    return np.flipud(a[:]) * scalefactor
 
 
 # Customized NetCDF classes
@@ -425,7 +425,7 @@ def main():
     nc.Conventions = 'CF-1.4'
     nc.history = time.strftime('%Y-%m-%d %H:%M:%S %Z: ') + ' '.join(sys.argv)
     nc.proj4 = proj.srs.rstrip()
-    mapping = nc.createVariable('mapping', byte)
+    mapping = nc.createVariable('mapping', np.byte)
     mapping.proj4 = proj.srs.rstrip()
 
     # define the dimensions
@@ -437,12 +437,12 @@ def main():
     # set projection x coordinate
     xvar = nc.createVariable('x', 'f8', ('x',))
     for i in range(cols):
-        xvar[i] = region['w'] + (i+.5)*region['ewres']
+        xvar[i] = region['w'] + (i+0.5) * region['ewres']
 
     # set projection y coordinate
     yvar = nc.createVariable('y', 'f8', ('y',))
     for i in range(rows):
-        yvar[i] = region['s'] + (i+.5)*region['nsres']
+        yvar[i] = region['s'] + (i+0.5) * region['nsres']
 
     # initialize longitude and latitude
     if (lonmap and latmap) or not nolonlat:
@@ -460,7 +460,7 @@ def main():
     elif not nolonlat:
         grass.message("Longitude and / or latitude map(s) unspecified."
                       "Calculating values from current projection...")
-        x, y = meshgrid(xvar[:], yvar[:])
+        x, y = np.meshgrid(xvar[:], yvar[:])
         lonvar[:], latvar[:] = proj(x, y, inverse=True)
 
     # initialize bedrock surface elevation
@@ -587,4 +587,3 @@ if __name__ == "__main__":
 # [3] https://github.com/Unidata/netcdf4-python
 # [4] http://pyproj.googlecode.com
 # [5] http://www.pism-docs.org/doxy/html/std_names.html
-
